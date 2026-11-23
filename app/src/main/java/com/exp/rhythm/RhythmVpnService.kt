@@ -78,7 +78,7 @@ class RhythmVpnService : VpnService() {
             runPacketLoop()
         }, "RhythmVpnWorker").apply { start() }
 
-
+    }
     private fun runPacketLoop() {
         val pfd = vpnInterface ?: return
 
