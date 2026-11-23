@@ -8,11 +8,9 @@ import android.net.VpnService
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import androidx.core.app.NotificationCompat
-import java.io.FileInputStream
-import java.io.FileOutputStream
-import java.nio.ByteBuffer
+import hev.htproxy.TProxyService
+import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
-
 class RhythmVpnService : VpnService() {
 
     companion object {
@@ -83,22 +81,33 @@ class RhythmVpnService : VpnService() {
         val pfd = vpnInterface ?: return
 
         try {
-            // TODO: Hubungkan pfd.detachFd() / fileDescriptor ke native user-space stack (tun2socks / hev-socks5-tunnel)
-            // dengan target proxy 127.0.0.1:1080 agar paket IPv4/IPv6 TCP & UDP diteruskan ke LocalSocks5Server.
-            while (isRunning.get() && !Thread.currentThread().isInterrupted) {
-                Thread.sleep(500L)
+            val configFile = File(cacheDir, "tun2socks.yml").apply {
+                writeText(
+                    """
+                    tunnel:
+                      mtu: 1500
+                    socks5:
+                      port: 1080
+                      address: '127.0.0.1'
+                      udp: 'udp'
+                    """.trimIndent()
+                )
             }
-        } catch (_: InterruptedException) {
-            // Normal shutdown
+
+            // Blocking call sampai TProxyStopService() dipanggil
+            TProxyService.TProxyStartService(configFile.absolutePath, pfd.fd)
         } catch (e: Exception) {
             e.printStackTrace()
         } finally {
-            stopVpn()
+            if (isRunning.get()) {
+                stopVpn()
+            }
         }
     }
 
     private fun stopVpn() {
-        isRunning.set(false)
+        if (!isRunning.getAndSet(false)) return
+        runCatching { TProxyService.TProxyStopService() }
         socksServer?.stop()
         socksServer = null
         workerThread?.interrupt()
