@@ -27,7 +27,8 @@ class RhythmVpnService : VpnService() {
 
     private var vpnInterface: ParcelFileDescriptor? = null
     private var workerThread: Thread? = null
-
+    private var ipRelay: LocalIpRelay? = null
+    
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
@@ -79,20 +80,20 @@ class RhythmVpnService : VpnService() {
         val pfd = vpnInterface ?: return
         val input = FileInputStream(pfd.fileDescriptor)
         val output = FileOutputStream(pfd.fileDescriptor)
+        val relay = LocalIpRelay(this, output, engine)
+        ipRelay = relay
         val packet = ByteBuffer.allocate(32767)
 
         try {
             while (isRunning.get() && !Thread.currentThread().isInterrupted) {
                 val length = input.read(packet.array())
                 if (length > 0) {
-                    // Hitung ritme penahanan paket dari RhythmEngine
                     val delayMs = engine.onTrafficCycle(length)
                     if (delayMs > 0L) {
                         Thread.sleep(delayMs)
                     }
 
-                    // TODO: Sambungkan packet[0..length] ke user-space forwarder (misal tun2socks / hev-socks5-tunnel)
-                    // agar paket diteruskan ke jaringan seluler dan balasannya ditulis balik ke `output`.
+                    relay.handleIpPacket(packet.array(), length)
                     packet.clear()
                 } else {
                     Thread.sleep(10L)
@@ -109,6 +110,8 @@ class RhythmVpnService : VpnService() {
 
     private fun stopVpn() {
         isRunning.set(false)
+        ipRelay?.close()
+        ipRelay = null
         workerThread?.interrupt()
         workerThread = null
         runCatching { vpnInterface?.close() }
