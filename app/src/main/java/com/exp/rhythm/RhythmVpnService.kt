@@ -27,8 +27,8 @@ class RhythmVpnService : VpnService() {
 
     private var vpnInterface: ParcelFileDescriptor? = null
     private var workerThread: Thread? = null
-    private var ipRelay: LocalIpRelay? = null
-    
+    private var socksServer: LocalSocks5Server? = null
+        
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
@@ -68,36 +68,25 @@ class RhythmVpnService : VpnService() {
             runCatching { builder.addDisallowedApplication(packageName) }
         }
 
-        vpnInterface = builder.establish() ?: return
+            vpnInterface = builder.establish() ?: return
+        socksServer = LocalSocks5Server(this, engine, "127.0.0.1", 1080).apply {
+            start()
+        }
         isRunning.set(true)
 
         workerThread = Thread({
             runPacketLoop()
         }, "RhythmVpnWorker").apply { start() }
-    }
+
 
     private fun runPacketLoop() {
         val pfd = vpnInterface ?: return
-        val input = FileInputStream(pfd.fileDescriptor)
-        val output = FileOutputStream(pfd.fileDescriptor)
-        val relay = LocalIpRelay(this, output, engine)
-        ipRelay = relay
-        val packet = ByteBuffer.allocate(32767)
 
         try {
+            // TODO: Hubungkan pfd.detachFd() / fileDescriptor ke native user-space stack (tun2socks / hev-socks5-tunnel)
+            // dengan target proxy 127.0.0.1:1080 agar paket IPv4/IPv6 TCP & UDP diteruskan ke LocalSocks5Server.
             while (isRunning.get() && !Thread.currentThread().isInterrupted) {
-                val length = input.read(packet.array())
-                if (length > 0) {
-                    val delayMs = engine.onTrafficCycle(length)
-                    if (delayMs > 0L) {
-                        Thread.sleep(delayMs)
-                    }
-
-                    relay.handleIpPacket(packet.array(), length)
-                    packet.clear()
-                } else {
-                    Thread.sleep(10L)
-                }
+                Thread.sleep(500L)
             }
         } catch (_: InterruptedException) {
             // Normal shutdown
@@ -110,8 +99,8 @@ class RhythmVpnService : VpnService() {
 
     private fun stopVpn() {
         isRunning.set(false)
-        ipRelay?.close()
-        ipRelay = null
+        socksServer?.stop()
+        socksServer = null
         workerThread?.interrupt()
         workerThread = null
         runCatching { vpnInterface?.close() }
