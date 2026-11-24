@@ -14,3 +14,4 @@ object TProxyService {
     @JvmStatic
     external fun TProxyGetStats(): LongArray
 }
+
