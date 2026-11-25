@@ -1,0 +1,5 @@
+language: "id-ID"
+reviews:
+  profile: "chill"
+  poem: false
+  high_level_summary: true
